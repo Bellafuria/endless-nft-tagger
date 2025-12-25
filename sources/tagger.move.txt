@@ -1,0 +1,97 @@
+module tagger::nft_tagger {
+    use std::signer;
+    use std::string::String;
+    use std::vector;
+    use aptos_framework::object::{Self, Object};
+    use aptos_token_objects::token::Token;
+    use aptos_framework::timestamp;
+
+    const E_NOT_OWNER: u64 = 1;
+
+    struct TagAttachment has store {
+        cid: String,
+        filename: String,
+        mime_type: String,
+        size: u64,
+        uploaded_by: address,
+        timestamp: u64,
+    }
+
+    struct NFTTags has key {
+        tags: vector<String>,
+        dynamic: bool,
+        royalty_rate: u64,
+        voters: vector<address>,
+        attachments: vector<TagAttachment>,
+    }
+
+    public entry fun initialize_tags(
+        owner: &signer,
+        token: Object<Token>,
+        is_dynamic: bool,
+        royalty: u64
+    ) acquires NFTTags {
+        let token_addr = object::object_address(&token);
+        assert!(object::owner(token) == signer::address_of(owner), E_NOT_OWNER);
+
+        move_to(owner, NFTTags {
+            tags: vector::empty<String>(),
+            dynamic: is_dynamic,
+            royalty_rate: royalty,
+            voters: vector::empty<address>(),
+            attachments: vector::empty<TagAttachment>(),
+        });
+    }
+
+    public entry fun add_tag_collaborative(
+        voter: &signer,
+        token: Object<Token>,
+        new_tag: String,
+        vote_threshold: u64
+    ) acquires NFTTags {
+        let token_addr = object::object_address(&token);
+        let state = borrow_global_mut<NFTTags>(token_addr);
+        let voter_addr = signer::address_of(voter);
+
+        if (!vector::contains(&state.voters, &voter_addr)) {
+            vector::push_back(&mut state.voters, voter_addr);
+        }
+
+        if (vector::length(&state.voters) >= vote_threshold && !vector::contains(&state.tags, &new_tag)) {
+            vector::push_back(&mut state.tags, new_tag);
+        }
+    }
+
+    public entry fun attach_file(
+        owner: &signer,
+        token: Object<Token>,
+        cid: String,
+        filename: String,
+        mime_type: String,
+        size: u64
+    ) acquires NFTTags {
+        let token_addr = object::object_address(&token);
+        assert!(object::owner(token) == signer::address_of(owner), E_NOT_OWNER);
+        let state = borrow_global_mut<NFTTags>(token_addr);
+
+        vector::push_back(&mut state.attachments, TagAttachment {
+            cid,
+            filename,
+            mime_type,
+            size,
+            uploaded_by: signer::address_of(owner),
+            timestamp: timestamp::now_seconds(),
+        });
+    }
+
+    #[view]
+    public fun get_all(token: Object<Token>): (vector<String>, vector<TagAttachment>) acquires NFTTags {
+        let token_addr = object -- это точно два обычных амперсанда
+        if (exists<NFTTags>(token_addr)) {
+            let state = borrow_global<NFTTags>(token_addr);
+            (state.tags, state.attachments)
+        } else {
+            (vector::empty<String>(), vector::empty<TagAttachment>())
+        }
+    }
+}
